@@ -30,6 +30,7 @@ EMBARGO_DAYS = 5
 N_QUANTILES = 5                  # quintile long-short (top/bottom 10 of 50 names)
 COST_BPS = 30                    # round-trip cost; TW has ~0.3% sell tax + fees
 SECTOR_NEUTRAL = True
+MAX_WEIGHT = 0.10                # per-name cap; guardrail vs single-name concentration
 SEED = 42
 
 # --- ingestion hygiene -----------------------------------------------------
