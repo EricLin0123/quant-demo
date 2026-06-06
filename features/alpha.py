@@ -174,14 +174,21 @@ def _cross_sectional_zscore(df: pd.DataFrame, feature_cols: list[str]) -> pd.Dat
 # --------------------------------------------------------------------------- #
 # Orchestration                                                                #
 # --------------------------------------------------------------------------- #
-def build_features(
+def build_raw_features(
     prices: pd.DataFrame | None = None,
     index: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Build the full Stage 2 feature frame from the price panel.
+    """Feature frame **before** cross-sectional normalization.
 
-    Returns [date, ticker, sector, <feature cols>, fwd_ret, fwd_rank], with all
-    features cross-sectionally z-scored and warmup/unlabelled rows removed.
+    Same per-stock features and forward target as `build_features`, with warmup
+    and unlabelled rows dropped, but the features keep their raw economic units
+    (raw momentum, realized vol, log dollar-volume, …) instead of being z-scored
+    within each day. Stage 7 drift monitoring runs on *these*: cross-sectional
+    z-scoring standardizes every day's cross-section, so it deliberately erases
+    the level/scale drift that an input-drift monitor is meant to catch — the
+    raw features are where covariate shift over the decade actually shows up.
+
+    Returns [date, ticker, sector, <feature cols>, fwd_ret, fwd_rank].
     """
     prices = ingest.load_prices() if prices is None else prices
     index = ingest.load_index() if index is None else index
@@ -209,6 +216,22 @@ def build_features(
     row_in_ticker = df.groupby("ticker").cumcount()
     df = df[row_in_ticker >= WARMUP]
     df = df.dropna(subset=feature_cols + ["fwd_ret"]).reset_index(drop=True)
+
+    out_cols = ["date", "ticker", "sector"] + feature_cols + ["fwd_ret", "fwd_rank"]
+    return df[out_cols].sort_values(["date", "ticker"]).reset_index(drop=True)
+
+
+def build_features(
+    prices: pd.DataFrame | None = None,
+    index: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Build the full Stage 2 feature frame from the price panel.
+
+    Returns [date, ticker, sector, <feature cols>, fwd_ret, fwd_rank], with all
+    features cross-sectionally z-scored and warmup/unlabelled rows removed.
+    """
+    df = build_raw_features(prices, index)
+    feature_cols = feature_columns(df)
 
     # Cross-sectional normalization (the conceptual core).
     df = _cross_sectional_zscore(df, feature_cols)

@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "evidently>=0.7.21",
     "lightgbm>=4.6.0",
     "matplotlib>=3.10.9",
     "mplfinance>=0.12.10b0",
