@@ -147,6 +147,32 @@ def load_index(
     return df
 
 
+def load_benchmark(
+    symbol: str = config.BENCHMARK,
+    start: str = config.START,
+    end: str = config.END,
+    cache: Path = config.BENCHMARK_CACHE,
+    force: bool = False,
+) -> pd.DataFrame:
+    """Load the cap-weighted benchmark ETF (0050.TW). [date, close].
+
+    yfinance auto-adjusts for dividends/splits, so close-to-close returns are the
+    ETF's total return — the cleanest, most faithful cap-weighted top-50 series
+    (real reconstitutions included), which is exactly what the strategy is
+    benchmarked against.
+    """
+    cache = Path(cache)
+    if cache.exists() and not force:
+        return pd.read_parquet(cache)
+
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Pulling benchmark {symbol} {start} -> {end} ...")
+    df = _download([symbol], start, end)[["date", "close"]]
+    df.to_parquet(cache, index=False)
+    print(f"  cached -> {cache}")
+    return df
+
+
 def _sanity_check(prices: pd.DataFrame) -> None:
     """Cheap assertions so a bad pull fails loudly instead of silently."""
     assert not prices[["date", "ticker"]].duplicated().any(), "duplicate (date,ticker) rows"

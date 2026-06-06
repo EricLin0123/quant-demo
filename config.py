@@ -7,6 +7,7 @@ date range, and the cache path; the rest is declared up-front for later stages.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 # --- paths -----------------------------------------------------------------
@@ -15,12 +16,18 @@ CACHE_DIR = ROOT / "data" / "cache"
 REPORTS_DIR = ROOT / "reports"
 PRICES_CACHE = CACHE_DIR / "prices.parquet"
 INDEX_CACHE = CACHE_DIR / "index.parquet"
+BENCHMARK_CACHE = CACHE_DIR / "benchmark.parquet"
 FEATURES_CACHE = CACHE_DIR / "features.parquet"
 
 # --- date range & universe -------------------------------------------------
-START, END = "2014-01-01", "2024-12-31"
+# END tracks "today" so a cold run pulls the latest available data. The cache is
+# immutable, so the window is frozen at first fetch and stays reproducible until
+# the next `--cold` refresh (re-runs don't silently move the end date).
+START = "2014-01-01"
+END = date.today().isoformat()
 UNIVERSE = "TWSE_TOP50"          # see TWSE_TOP50 list below (.TW suffix)
-INDEX_PROXY = "^TWII"            # TAIEX, for the beta feature; 0050.TW = ETF proxy
+INDEX_PROXY = "^TWII"            # TAIEX, for the beta feature
+BENCHMARK = "0050.TW"            # cap-weighted top-50 ETF — the strategy's benchmark
 
 # --- labelling & rebalancing (used from Stage 2 onward) --------------------
 LABEL_HORIZON = 10               # trading days forward
@@ -28,10 +35,21 @@ REBALANCE_FREQ = 5               # trade every 5 days
 N_SPLITS = 8                     # walk-forward folds
 EMBARGO_DAYS = 5
 N_QUANTILES = 5                  # quintile long-short (top/bottom 10 of 50 names)
-COST_BPS = 30                    # round-trip cost; TW has ~0.3% sell tax + fees
 SECTOR_NEUTRAL = True
 MAX_WEIGHT = 0.10                # per-name cap; guardrail vs single-name concentration
 SEED = 42
+
+# --- transaction costs (Taiwan, modeled explicitly) ------------------------
+# Real TW retail cost stack, charged per execution:
+#   * broker fee  = 0.1425% of trade value, on BOTH buy and sell, NT$20 minimum;
+#   * transaction tax = 0.30% of trade value, on the SELL side only (individual
+#     stocks; ETFs are 0.10%, but the strategy trades single names).
+# The NT$20 minimum only bites relative to trade size, so the engine needs an
+# assumed account size (NAV) to convert weight changes into NT$ trade values.
+FEE_RATE = 0.001425              # broker commission, each side
+MIN_FEE_TWD = 20.0               # per-execution minimum fee (NT$)
+SELL_TAX_RATE = 0.003            # securities transaction tax, sell side (stocks)
+CAPITAL_TWD = 100_000_000        # assumed NAV (NT$100M); sets when the min fee binds
 
 # --- ingestion hygiene -----------------------------------------------------
 # Drop any ticker missing more than this fraction of the common trading

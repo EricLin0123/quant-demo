@@ -11,12 +11,16 @@ The two things an engine like this must get right:
      to decide — so those weights only earn returns from day `t+1` onward. We
      forward-fill the targets (hold between rebalances) and then `.shift(1)`, so
      the weights multiplying day `d`'s return were always set on data ≤ `d-1`.
-  2. **Costs are real.** Transaction cost = `COST_BPS` × turnover, where
-     turnover = Σ|Δweight| at each rebalance. We charge it on the day the book
-     actually changes, and report the equity curve **gross and net**. The drop
-     between the two is the single most important chart in the deck — if net is
-     marginal, the honest fix is lower turnover (longer hold / signal
-     smoothing), not a fancier model.
+  2. **Costs are real, and modeled the way Taiwan actually charges them.** At
+     each rebalance we convert every name's weight change into an NT$ trade value
+     (|Δweight| × NAV) and apply the real TW retail stack:
+       * broker fee 0.1425% on *both* buy and sell, with an **NT$20 minimum per
+         execution** — which is why we need an NAV, not just a turnover fraction;
+       * a 0.30% **securities transaction tax on the sell side** only.
+     We charge it on the day the book actually changes and report the equity
+     curve **gross and net**. The drop between the two is the single most
+     important chart in the deck — if net is marginal, the honest fix is lower
+     turnover (longer hold / signal smoothing), not a fancier model.
 
     uv run backtest/engine.py   # runs the long-short book, prints the metrics table
 """
@@ -50,17 +54,52 @@ def daily_returns(prices: pd.DataFrame | None = None) -> pd.DataFrame:
     return close.pct_change()
 
 
+def benchmark_returns(bench: pd.DataFrame | None = None) -> pd.Series:
+    """Daily total return of the cap-weighted benchmark ETF (0050.TW)."""
+    if bench is None:
+        bench = ingest.load_benchmark()
+    s = bench.set_index("date")["close"].sort_index()
+    return s.pct_change().rename("benchmark")
+
+
+def equity_stats(ret: pd.Series, window: pd.DatetimeIndex | None = None) -> dict:
+    """Buy-and-hold metrics for a return series (e.g. the benchmark).
+
+    Restrict to `window` (the strategy's OOS dates) for an apples-to-apples
+    comparison. Turnover/cost are ~nil for buy-and-hold, so we report it gross.
+    """
+    r = ret.dropna()
+    if window is not None:
+        r = r.reindex(window).dropna()
+    curve = (1.0 + r).cumprod()
+    ann_ret = float(r.mean() * ANN)
+    return {
+        "ann_return": ann_ret,
+        "ann_vol": float(r.std(ddof=1) * np.sqrt(ANN)),
+        "sharpe": _sharpe(r),
+        "mdd": _max_drawdown(curve),
+        "calmar": float(ann_ret / abs(_max_drawdown(curve))) if _max_drawdown(curve) else float("nan"),
+        "curve": curve,
+        "ret": r,
+    }
+
+
 def backtest(
     weights: pd.DataFrame,
     returns: pd.DataFrame,
-    cost_bps: float = config.COST_BPS,
+    nav: float = config.CAPITAL_TWD,
+    fee_rate: float = config.FEE_RATE,
+    min_fee: float = config.MIN_FEE_TWD,
+    sell_tax: float = config.SELL_TAX_RATE,
 ) -> dict:
     """Run the weight schedule against daily returns; return curves + metrics.
 
     `weights` is the rebalance-date target frame [date, ticker, weight] from
     `portfolio.build_weights`; `returns` is the [date × ticker] daily-return
-    matrix. Costs use `cost_bps` round-trip on turnover. Returns a dict with the
-    gross/net equity curves, per-day returns, turnover, and the headline stats.
+    matrix. Costs use the explicit Taiwan stack (see module docstring): a
+    per-name broker fee with an NT$`min_fee` minimum, plus a sell-side tax, all
+    scaled by `nav`. Returns a dict with the gross/net equity curves, per-day
+    returns, turnover, and the headline stats.
     """
     # Targets as a [rebalance_date × ticker] matrix on the traded universe.
     # Crucially, fill 0 here: a name absent from a rebalance means "not held = 0"
@@ -80,11 +119,21 @@ def backtest(
     # Gross daily P&L = Σ weightᵢ · returnᵢ.
     gross_ret = (active * rets).sum(axis=1)
 
-    # Turnover = Σ|Δweight|, non-zero only on the days the book actually changes
-    # (the session after each rebalance). Cost = bps × turnover, charged there.
-    turnover = active.diff().abs().sum(axis=1)
-    turnover.iloc[0] = active.iloc[0].abs().sum()      # initial build from cash
-    cost = turnover * (cost_bps / 1e4)
+    # Per-name weight change at each session (non-zero only the day after each
+    # rebalance). The first row is the initial build from cash.
+    dW = active.diff()
+    dW.iloc[0] = active.iloc[0]
+    traded = dW.abs()                                  # |Δw| per name
+    sold = (-dW).clip(lower=0.0)                        # weight *reductions* = sells
+
+    # Broker fee per name = max(fee_rate · NT$ trade value, NT$ minimum), but only
+    # where a trade actually happened. Sell tax hits the sold notional only.
+    trade_twd = traded * nav
+    fee_twd = np.maximum(fee_rate * trade_twd, min_fee).where(traded > 0, 0.0)
+    tax_twd = sell_tax * sold * nav
+    cost = (fee_twd.sum(axis=1) + tax_twd.sum(axis=1)) / nav   # back to a return
+
+    turnover = traded.sum(axis=1)                      # Σ|Δw|, for reporting
     net_ret = gross_ret - cost
 
     gross_curve = (1.0 + gross_ret).cumprod()
@@ -97,6 +146,7 @@ def backtest(
         "gross_curve": gross_curve,
         "net_curve": net_curve,
         "turnover": turnover,
+        "cost": cost,
         **_stats(gross_ret, net_ret, net_curve, rebal_turnover),
     }
 
@@ -202,5 +252,10 @@ if __name__ == "__main__":
     _report("Long-only top quintile (realistic, shortable deployment):", res_lo)
     plot_equity(res_lo, path=config.REPORTS_DIR / "equity_long_only.png",
                 title="Long-only top-quintile book")
+
+    bench = equity_stats(benchmark_returns(), window=res_ls["net_ret"].index)
+    print(f"\nBenchmark 0050.TW (cap-weighted top-50, buy & hold): "
+          f"Sharpe {bench['sharpe']:+.2f} | annRet {bench['ann_return']:+.1%} "
+          f"| vol {bench['ann_vol']:.1%} | MDD {bench['mdd']:+.1%}")
 
     print("\nStage 6 done.")

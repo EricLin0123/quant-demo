@@ -52,6 +52,7 @@ def main(cold: bool = False, make_html: bool = True) -> dict:
     _hr("1 · Data ingestion")
     prices = ingest.load_prices(force=cold)
     ingest.load_index(force=cold)
+    ingest.load_benchmark(force=cold)
     print(f"  prices: {len(prices):,} rows | {prices['ticker'].nunique()} tickers "
           f"| {prices['date'].min().date()} → {prices['date'].max().date()}")
 
@@ -86,8 +87,10 @@ def main(cold: bool = False, make_html: bool = True) -> dict:
     engine.plot_equity(res_ls, title="Long-short quintile book")
     engine.plot_equity(res_lo, path=config.REPORTS_DIR / "equity_long_only.png",
                        title="Long-only top-quintile book")
+    bench = engine.equity_stats(engine.benchmark_returns(), window=res_ls["net_ret"].index)
     print(f"  long-short net Sharpe {res_ls['sharpe_net']:+.2f} | "
-          f"long-only net Sharpe {res_lo['sharpe_net']:+.2f}")
+          f"long-only net Sharpe {res_lo['sharpe_net']:+.2f} | "
+          f"benchmark 0050 Sharpe {bench['sharpe']:+.2f}")
 
     # 6 — drift monitoring ----------------------------------------------------
     _hr("6 · Drift monitoring (three rings)")
@@ -98,12 +101,13 @@ def main(cold: bool = False, make_html: bool = True) -> dict:
           f"{mon['n_drifted']}/{len(mon['drift'])} | "
           f"IC trend/yr {mon['ic_decay']['ic_slope_per_year']:+.4f}")
 
-    _summary_table(ic_stats, res_ls, res_lo, mon)
+    _summary_table(ic_stats, res_ls, res_lo, bench, mon)
     print(f"\nDone in {time.time() - t0:.1f}s. Artifacts in {config.REPORTS_DIR}/")
-    return {"ic": ic_stats, "long_short": res_ls, "long_only": res_lo, "drift": mon}
+    return {"ic": ic_stats, "long_short": res_ls, "long_only": res_lo,
+            "benchmark": bench, "drift": mon}
 
 
-def _summary_table(ic_stats, res_ls, res_lo, mon) -> None:
+def _summary_table(ic_stats, res_ls, res_lo, bench, mon) -> None:
     """The results slide: one clean table of every headline number."""
     _hr("RESULTS SUMMARY")
     print("Signal quality (out-of-sample, purged walk-forward)")
@@ -123,6 +127,9 @@ def _summary_table(ic_stats, res_ls, res_lo, mon) -> None:
           "  Calmar   Turn/rb  Hit")
     print(f"  long-short (ideal) {col(res_ls)}")
     print(f"  long-only  (real)  {col(res_lo)}")
+    print(f"  0050 benchmark     {bench['sharpe']:>+17.2f}{bench['ann_return']:>+9.1%}"
+          f"{bench['ann_vol']:>8.1%}{bench['mdd']:>+8.1%}{bench['calmar']:>+8.2f}"
+          f"{0.0:>9.1%}{'—':>8}  (cap-weighted buy & hold)")
 
     d = mon["ic_decay"]
     print("\nMonitoring")
@@ -132,10 +139,13 @@ def _summary_table(ic_stats, res_ls, res_lo, mon) -> None:
           f"(top: {', '.join(mon['drift'].head(3)['feature'])})")
     print(f"  high-vol regime days   {mon['high_vol_frac']:.1%}")
 
-    print("\nHonest read: modest, real cross-sectional signal (IC ~0.035). The "
-          "long-short\nnet Sharpe is eaten by turnover cost — the fix is a longer "
-          "hold / signal\nsmoothing, not a fancier model. Long-only top-quintile "
-          "is the realistic,\nshortable deployment.")
+    print(f"\nHonest read: a modest, real cross-sectional signal (IC "
+          f"{ic_stats['mean_ic']:+.3f}). The long-short\nnet Sharpe is eaten by "
+          "Taiwan transaction costs (0.1425%/side fee + 0.3% sell tax) on high\n"
+          "turnover — the fix is a longer hold / signal smoothing, not a fancier "
+          "model.\nAgainst the cap-weighted 0050 benchmark "
+          f"(Sharpe {bench['sharpe']:+.2f}), the model does not\nbeat simple "
+          "buy-and-hold after costs; the deliverable is the rigorous, honest loop.")
 
 
 if __name__ == "__main__":

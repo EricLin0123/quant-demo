@@ -29,7 +29,7 @@ backtest/engine.py`) printing its own acceptance checks.
 | 2 Features | `features/alpha.py` | ~18 point-in-time features, cross-sectionally z-scored each day |
 | 3 Model | `model/validation.py`, `model/train.py` | **purged + embargoed** walk-forward LightGBM, OOS predictions |
 | 4 Metrics | `backtest/metrics.py` | mean IC, ICIR, t-stat, rolling-IC plot |
-| 5–6 Backtest | `backtest/portfolio.py`, `backtest/engine.py` | dollar-neutral quintile long-short, own vectorized engine, **gross vs net** curves |
+| 5–6 Backtest | `backtest/portfolio.py`, `backtest/engine.py` | dollar-neutral quintile long-short, own vectorized engine, **Taiwan cost stack**, **gross vs net** curves, vs **0050** benchmark |
 | 7 Monitoring | `monitoring/drift.py` | three-ring drift: rolling IC, PSI/KS, regime flag, Evidently `reports/drift.html` |
 
 Production logic lives in modules; `notebooks/` is exploration only.
@@ -45,6 +45,17 @@ Production logic lives in modules; `notebooks/` is exploration only.
 - **Long-short** (idealized): the gross signal is positive but thin, and the
   **net Sharpe is eaten by ~10%/yr turnover cost**. The fix is a longer hold /
   signal smoothing, *not* a fancier model — that gross-vs-net gap is the point.
+- **Benchmark — 0050.TW** (cap-weighted top-50 ETF, buy & hold): the model does
+  **not** beat simple buy-and-hold after costs. The honest deliverable is the
+  rigorous loop, not a deployable edge.
+
+### Transaction costs (Taiwan, modeled explicitly)
+
+Costs are the real TW retail stack, not a single fudge factor (`config.py`):
+broker fee **0.1425% on both buy and sell** with an **NT$20-per-execution
+minimum**, plus a **0.30% securities transaction tax on sells**. The NT$20
+minimum only bites relative to trade size, so the engine assumes an account size
+(`CAPITAL_TWD`, default **NT$100M**) to turn weight changes into NT$ trade values.
 
 ## Known limitations (named, not hidden)
 
