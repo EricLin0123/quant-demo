@@ -313,19 +313,22 @@ def evidently_report(reference_df, current_df, path="reports/drift.html"): ...
 
 ## 8. Orchestration & reproducibility
 
-**File:** `run_pipeline.py`
+**File:** `run_pipeline.ipynb`
 
-```python
-# 1. load_prices  → 2. build_features  → 3. run_walk_forward
-# 4. daily_ic/icir → 5. build_weights/backtest → 6. drift report
-# print metrics table; save all charts to reports/
-```
+This file show contain the following
+
+1. load_prices
+2. build_features
+3. run_walk_forward
+4. daily_ic/icir
+5. build_weights/backtest
+6. drift report
 
 - Set all seeds (`SEED`).
-- Print a clean metrics summary table at the end (this becomes your results slide).
-- README: one-paragraph framing + `python run_pipeline.py`.
-
----
+- Use caching at every stage (data, features, predictions) so you can iterate on later stages without re-running everything.
+- Use exsiting code from the modules, don't copy-paste logic into the notebook. The notebook is just the orchestration layer. If caching is done at module level, the notebook should run end-to-end in seconds on a cold cache, and near-instant on a warm cache.
+- Use matplotlib or mplfinance for charts; make them clean and presentation-ready.
+- Generate important chart into the /reports folder as HTML or PNG artifacts, so I can easily insert them into slides.
 
 ## 9. Suggested timeline (pre-interview)
 
