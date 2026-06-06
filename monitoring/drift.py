@@ -166,6 +166,21 @@ def evidently_report(
     ref = _sample(reference_df[feature_cols])
     cur = _sample(current_df[feature_cols])
 
+    # Winsorize to a robust per-feature range before handing data to Evidently.
+    # The raw features are deliberately *not* z-scored, so a few names carry
+    # extreme tails (e.g. amihud_21 spans ~0.02 median to ~1.5e6 on a thin-
+    # liquidity day). Left raw, one such value blows up a feature's y-axis: every
+    # real observation — and Evidently's reference-mean baseline — collapses onto
+    # a flat line at zero, and the auto-binned histogram lands entirely in one
+    # bucket, so the column reads as "drifted" off a degenerate distribution.
+    # Clip both frames to the *combined* 0.5/99.5 pct so genuine early-vs-late
+    # shift is preserved while the lone outliers stop dominating the plot. This
+    # mirrors the quantile-based binning the PSI ring already uses above.
+    both = pd.concat([ref, cur])
+    lo, hi = both.quantile(0.005), both.quantile(0.995)
+    ref = ref.clip(lower=lo, upper=hi, axis=1)
+    cur = cur.clip(lower=lo, upper=hi, axis=1)
+
     data_def = DataDefinition(numerical_columns=list(feature_cols))
     ref_ds = Dataset.from_pandas(ref, data_definition=data_def)
     cur_ds = Dataset.from_pandas(cur, data_definition=data_def)
