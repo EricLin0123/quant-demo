@@ -1,3 +1,8 @@
 .DS_store
 .venv
 .env
+
+# generated artifacts
+data/cache/
+reports/
+__pycache__/

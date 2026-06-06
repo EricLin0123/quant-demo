@@ -1,6 +1,6 @@
 # Quant Demo Project — Build Plan
 
-A self-contained, laptop-scale machine learning quant research loop, built to **demonstrate methodological rigor** for a second-round ML Research Engineer interview. The goal is _not_ to find deployable alpha — it is to prove you can stand up the full pipeline (data → alpha → model → backtest → portfolio → execution → monitoring) and stress-test it honestly.
+A self-contained, laptop-scale machine learning quant research loop, built to **demonstrate methodological rigor** for a second-round ML Research Engineer interview. The goal is _not_ to find deployable alpha — it is to prove you can stand up the full pipeline (data → alpha → model → backtest → portfolio → execution → monitoring) and stress-test it honestly. The target universe is the **top 50 companies on the Taiwan Stock Exchange (TWSE)** by market cap / liquidity.
 
 > **Guiding principle:** A modest, honest result with airtight methodology beats a Sharpe-of-3 fantasy. Every stage should make a senior quant think "this person has done it before."
 
@@ -10,8 +10,10 @@ A self-contained, laptop-scale machine learning quant research loop, built to **
 
 **In scope**
 
-- Cross-sectional, dollar-neutral, long-short equity strategy on daily data.
+- Cross-sectional, dollar-neutral, long-short equity strategy on daily data over the **TWSE top 50** universe.
 - Full reproducible pipeline with caching, leakage controls, cost modeling, and drift monitoring.
+
+> **Universe-size caveat (say this out loud):** 50 names is a small cross-section. Decile long-short would leave ~5 names per leg — too noisy. Use **quintiles** (top/bottom 10 names) instead, and lean on IC as the primary signal-quality metric since portfolio PnL is high-variance with so few names.
 
 **Out of scope (name these as future work, don't try to build them)**
 
@@ -37,9 +39,16 @@ A self-contained, laptop-scale machine learning quant research loop, built to **
 ### 1.1 Environment
 
 ```bash
-python -m venv .venv && source .venv/bin/activate   # Win: .venv\Scripts\activate
-pip install pandas numpy yfinance lightgbm scikit-learn scipy matplotlib pyarrow evidently tqdm
-pip freeze > requirements.txt
+source ./.venv/bin/activate
+uv add pandas numpy yfinance lightgbm scikit-learn scipy matplotlib pyarrow evidently tqdm
+```
+
+> **Data note:** TWSE tickers on Yahoo Finance use the `.TW` suffix (e.g. `2330.TW` for TSMC). The market index proxy is `^TWII` (TAIEX); the liquid ETF proxy is `0050.TW` (Yuanta Taiwan Top 50, which itself tracks this universe).
+
+When you try to run any Python code, use
+
+```bash
+uv run <script>.py
 ```
 
 ### 1.2 Repo structure
@@ -60,7 +69,7 @@ quant-demo/
 │   └── train.py              # LightGBM train/predict over walk-forward
 ├── backtest/
 │   ├── metrics.py            # IC, ICIR
-│   ├── portfolio.py          # decile long-short, sector-neutral, weights
+│   ├── portfolio.py          # quintile long-short, sector-neutral, weights
 │   └── engine.py             # vectorized backtester + transaction costs
 ├── monitoring/
 │   └── drift.py              # rolling IC, PSI/KS, Evidently report
@@ -75,13 +84,14 @@ quant-demo/
 
 ```python
 START, END        = "2014-01-01", "2024-12-31"
-UNIVERSE          = "SP500_TOP200"   # or a hardcoded list of ~200 liquid tickers
+UNIVERSE          = "TWSE_TOP50"      # hardcoded list of top-50 TWSE tickers (.TW suffix)
+INDEX_PROXY       = "^TWII"           # TAIEX, for beta feature; 0050.TW as ETF proxy
 LABEL_HORIZON     = 10               # trading days forward
 REBALANCE_FREQ    = 5                # trade every 5 days
 N_SPLITS          = 8                # walk-forward folds
 EMBARGO_DAYS      = 5
-N_QUANTILES       = 10               # decile long-short
-COST_BPS          = 10               # round-trip transaction cost assumption
+N_QUANTILES       = 5                # quintile long-short (top/bottom 10 of 50 names)
+COST_BPS          = 30               # round-trip cost; TW has ~0.3% sell tax + fees
 SECTOR_NEUTRAL    = True
 SEED              = 42
 ```
@@ -94,8 +104,8 @@ SEED              = 42
 
 **Tasks**
 
-1. Define the universe as a _fixed hardcoded list_ of ~200 liquid tickers (paste from a current S&P 500 list, trim to high dollar-volume names). Keep the list in the repo so it's reproducible.
-2. Pull adjusted daily OHLCV via `yfinance` (auto-adjusts splits/dividends).
+1. Define the universe as a _fixed hardcoded list_ of the **top 50 TWSE tickers** (paste from a current 0050.TW / TWSE market-cap ranking, append the `.TW` suffix). Keep the list in the repo so it's reproducible.
+2. Pull adjusted daily OHLCV via `yfinance` (auto-adjusts splits/dividends). Also pull `^TWII` for the index/beta proxy.
 3. Align all tickers to a common trading calendar; drop names with excessive missing history.
 4. Cache to `data/cache/prices.parquet`. Treat raw pull as **immutable** — never overwrite.
 5. Add a thin loader: if cache exists, read it; else pull and write.
@@ -109,7 +119,8 @@ def load_prices(tickers, start, end, cache="data/cache/prices.parquet") -> pd.Da
 
 **Gotcha to handle (and to say out loud in the interview)**
 
-- **Survivorship bias.** The current index list excludes delisted names → inflated returns. Add a comment in code and a line in the README: _"Known limitation; production would use a point-in-time universe (e.g. CRSP)."_
+- **Survivorship bias.** Today's top-50 list excludes names that fell out of the ranking → inflated returns. Add a comment in code and a line in the README: _"Known limitation; production would use a point-in-time TWSE constituent history (e.g. TEJ)."_
+- **Concentration.** TSMC (2330.TW) alone is a huge share of TWSE market cap; with only 50 names the cross-section is semiconductor-heavy. Flag this — it motivates the sector-neutralization step.
 - Forward-fill prices **carefully** and **never** fill the forward-return target.
 
 **Acceptance**
@@ -131,7 +142,7 @@ def load_prices(tickers, start, end, cache="data/cache/prices.parquet") -> pd.Da
     - Realized volatility (21d, 63d).
     - Dollar-volume trend / liquidity.
     - Distance from moving averages (e.g. close / SMA50 − 1).
-    - Optional: rolling beta to an index proxy (e.g. SPY).
+    - Optional: rolling beta to an index proxy (e.g. `^TWII` / `0050.TW`).
     - Target around 15–25 features. Resist adding more.
 2. Build the **target**: forward return over `LABEL_HORIZON`, then convert to a **cross-sectional rank** within each date.
 3. **Cross-sectional normalization:** each day, z-score or rank every feature across all names. This is the conceptual core — it turns absolute features into "how this stock looks vs its peers today."
@@ -242,9 +253,10 @@ def icir(ic_series):
 
 ### 6.1 Portfolio construction
 
-- Each rebalance (`REBALANCE_FREQ`): rank by `pred`, long top decile, short bottom decile.
+- Each rebalance (`REBALANCE_FREQ`): rank by `pred`, long top quintile, short bottom quintile (~10 names per leg out of 50).
 - Dollar-neutral, equal-weight (or rank-weight) within each leg.
-- If `SECTOR_NEUTRAL`: demean predictions within sector first, so momentum isn't a disguised sector bet.
+- If `SECTOR_NEUTRAL`: demean predictions within sector first (use the TWSE/GICS sector tag), so the signal isn't a disguised semiconductor bet — important given TSMC + the chip cluster dominate this universe.
+- Short-availability caveat: borrowing some TWSE names is hard/expensive in practice. Note that the long-short result is an idealization; a long-only top-quintile variant is the more realistic deployment.
 - Cap per-name weight.
 
 ### 6.2 Vectorized backtester + costs
