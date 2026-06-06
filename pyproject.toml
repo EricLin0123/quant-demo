@@ -5,11 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "lightgbm>=4.6.0",
     "matplotlib>=3.10.9",
     "mplfinance>=0.12.10b0",
     "numpy>=2.4.6",
     "pandas>=3.0.3",
     "pyarrow>=24.0.0",
+    "scikit-learn>=1.9.0",
     "tqdm>=4.68.1",
     "yfinance>=1.4.1",
 ]
