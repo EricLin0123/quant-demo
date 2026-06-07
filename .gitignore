@@ -4,5 +4,4 @@
 
 # generated artifacts
 data/cache/
-reports/
 __pycache__/
