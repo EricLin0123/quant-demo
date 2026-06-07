@@ -4,7 +4,6 @@
 
 # generated artifacts
 data/cache/
-reports/
 __pycache__/
 .pytest_cache
 data

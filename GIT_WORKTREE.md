@@ -167,7 +167,37 @@ git worktree remove --force ~/quant-demo-long-short
 
 ---
 
-## 10. Gotchas
+## 10. Working with a GitHub Remote
+
+**`long-short` starts as a local-only branch.** After creating the worktree, push it to GitHub to enable pull/push:
+
+```bash
+cd ~/quant-demo-long-short
+git push -u origin long-short
+```
+
+The `-u` sets the upstream so future `git pull` / `git push` in that worktree work without arguments.
+
+**`git fetch` is shared across both worktrees.** Both share the same `.git`, so a fetch in either directory updates remote refs for both:
+
+```bash
+# run from either directory — both see the result
+git fetch origin
+```
+
+**Merging into main and pushing** — same as usual from the primary worktree:
+
+```bash
+cd ~/quant-demo
+git merge long-short
+git push origin main
+```
+
+**Pulling in the secondary worktree** only works after you've pushed `long-short` to the remote (step above). Otherwise `git pull` will complain there's no upstream.
+
+---
+
+## 11. Gotchas
 
 | Situation | What happens | Fix |
 |---|---|---|
