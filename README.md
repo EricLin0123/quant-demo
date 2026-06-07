@@ -1,14 +1,81 @@
 # TWII Next-Day Return Forecasting
 
-A single **LightGBM** regressor that predicts the **next-day log return** of the
-Taiwan Weighted Index (TAIEX, `^TWII`) from causal technical indicators. The
-deliverable is _predictive power measured against naive baselines_ — not a trading
-book.
+A from-scratch reimplementation of the **CalixBoost** methodology: a single
+**LightGBM** regressor that predicts the **next-day log return** of the Taiwan
+Weighted Index (TAIEX, `^TWII`) from causal technical indicators. The deliverable is
+_honest predictive power measured against naive baselines_ — not a trading book.
 
 > **Honest scope.** Out-of-sample R² on daily returns is expected near zero or
 > negative, and 51–54% directional accuracy is a _good_ result. A dramatically
 > higher number on one split is leakage, not alpha. Every metric is reported next
 > to a baseline so the numbers mean something.
+
+## TL;DR — what this project found
+
+**The model learns that the market drifts up a little almost every day, so it hedges
+by making the same tiny "slightly up" prediction every single day.** It is, in
+effect, a constant predictor. That is the *correct* statistical response to a
+near-noise target — and the headline finding of the project.
+
+On the most recent test split (n = 519 days, 2024-04 → 2026-06):
+
+| metric | model | best baseline | reading |
+|---|---|---|---|
+| **MAE** | 1.088e-2 | 1.099e-2 (persistence, r̂=0) | barely beats "predict zero" |
+| **Directional accuracy** | 57.0% | 56.8% (always-up) | basically ties the up-drift |
+| **Information Coefficient** | +0.052 | 0 | a small, real edge |
+| **Out-of-sample R²** | +0.001 | 0 | ≈ 0, exactly as expected |
+
+The MAE/DirAcc edge over the baselines is real but *tiny*. There is no free alpha in
+daily index returns — and the honesty of that result is the point.
+
+### Why the model "keeps making the same guess"
+
+The next-day return is almost pure noise (σ ≈ 1.6e-2) with a faint positive drift.
+Under MAE/L1 loss with early stopping and L1/L2 regularization, the loss-minimizing
+move is to **shrink every prediction toward the conditional median** — a small
+positive constant — because inflating predictions to the true ±2.5e-2 scale would
+only *worsen* MAE on a target it cannot actually forecast. So predictions collapse
+to a flat band of ≈ +8e-4, about **30× smaller** than the actual returns.
+
+![Predicted vs. actual next-day return](docs/images/pred_vs_actual.png)
+
+> The cloud of predictions is a **horizontal line near zero** — actuals span ±0.10,
+> predictions barely leave +0.0005. The model is not tracking the market; it is
+> emitting its best constant. IC is +0.05 only because that constant leans the
+> correct (up) way.
+
+Because the constant is positive, the model calls **"up" on 91% of days** while the
+market was actually up on 57% of them. Its directional "wins" come almost entirely
+from the up-biased test window, not from genuine timing — note the near-empty
+`pred_down` column:
+
+![Directional confusion matrix](docs/images/direction_confusion.png)
+
+Per day, the predicted series (right axis, ~30× magnified to even be visible) is a
+flat ripple against the real volatility (left axis); green = direction hit, red =
+miss:
+
+![Per-day actual vs. predicted](docs/images/actual_vs_predicted_timeseries.png)
+
+### What the model *does* key on
+
+TreeSHAP ranks the **stationary return / volume-change / oscillator** family at the
+top (`delta_v_ma_5`, `intraday_ma_10`, `delta_c_ma_20`, return lags, `williams_r`,
+`rsi`). The non-stationary price-level block (raw MAs, EMAs, Bollinger bands, MACD)
+never appears — it was discarded *before* training by the temporal-consistency
+filter described below. All SHAP magnitudes are ~1e-4, consistent with a model that
+moves its output very little.
+
+![SHAP feature importance](docs/images/shap_bar.png)
+
+### Interview takeaway
+
+The pipeline is built to **expose** this result, not hide it: every metric sits next
+to a baseline, scoring is per next-day prediction (never a compounded price level
+that would manufacture a flattering equity curve), and a leakage test gates the whole
+thing. The "boring" constant-predictor outcome is the honest answer to "can technical
+indicators forecast tomorrow's TAIEX return?" — *barely, and only on average.*
 
 ## Layout
 
