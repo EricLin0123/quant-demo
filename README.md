@@ -1,71 +1,53 @@
-# quant-demo
+# TWII Next-Day Return Forecasting
 
-A self-contained, laptop-scale ML quant research loop on the **TWSE top-50**
-universe — built to demonstrate *methodological rigor*, not to find deployable
-alpha. It stands up the full pipeline (data → alpha → model → backtest →
-portfolio → cost-aware execution → drift monitoring) and stress-tests it
-honestly: purged walk-forward validation, cross-sectional normalization, real
-transaction costs, and a three-ring drift monitor. The guiding principle is that
-a modest, honest result with airtight methodology beats a Sharpe-of-3 fantasy.
+A single **LightGBM** regressor that predicts the **next-day log return** of the
+Taiwan Weighted Index (TAIEX, `^TWII`) from causal technical indicators. The
+deliverable is *predictive power measured against naive baselines* — not a trading
+book.
 
-## Run it
+> **Honest scope.** Out-of-sample R² on daily returns is expected near zero or
+> negative, and 51–54% directional accuracy is a *good* result. A dramatically
+> higher number on one split is leakage, not alpha. Every metric is reported next
+> to a baseline so the numbers mean something.
 
-```bash
-uv run run_pipeline.py            # reproduces every number + chart (warm cache ≈ 5s)
-uv run run_pipeline.py --cold     # ignore caches, rebuild from a fresh data pull
-uv run run_pipeline.py --no-html  # skip the (slower) Evidently HTML report
+## Layout
+
+```
+src/twii_forecast/
+  config.py    constants: windows, split ratios, paths, seed
+  data.py      yfinance pull + volume data-quality gate
+  features.py  causal/trailing technical indicators
+  target.py    next-day log return  r_{t+1} = ln(C_{t+1}/C_t)
+  dataset.py   assemble X/y, drop warmup + tail NaNs
+  split.py     chronological 85/5/10
+  scaling.py   RobustScaler (IQR), fit on TRAIN only
+  model.py     LightGBM + early stopping + random search
+  evaluate.py  MAE / RMSE / DirAcc / IC / R² vs. baselines
+  monitor.py   evidently train-vs-test drift report
+  plots.py     candles, pred-vs-actual, residuals, next-day directional accuracy
+notebooks/run_pipeline.ipynb   thin end-to-end orchestration
+tests/test_leakage.py          correctness gate (no future bleed)
 ```
 
-Every stage is build-or-load and immutably cached, and all randomness is seeded
-(`config.SEED`), so re-runs are instant and every artifact traces back to this
-one entry point. Each module also runs standalone (e.g. `uv run
-backtest/engine.py`) printing its own acceptance checks.
+## Run
 
-## Pipeline
+```bash
+uv sync
+uv run pytest                        # leakage gate — must pass
+uv run jupyter lab notebooks/run_pipeline.ipynb
+```
 
-| Stage | Module | Output |
-| --- | --- | --- |
-| 1 Data | `data/ingest.py` | adjusted OHLCV parquet, common calendar |
-| 2 Features | `features/alpha.py` | ~18 point-in-time features, cross-sectionally z-scored each day |
-| 3 Model | `model/validation.py`, `model/train.py` | **purged + embargoed** walk-forward LightGBM, OOS predictions |
-| 4 Metrics | `backtest/metrics.py` | mean IC, ICIR, t-stat, rolling-IC plot |
-| 5–6 Backtest | `backtest/portfolio.py`, `backtest/engine.py` | dollar-neutral quintile long-short, own vectorized engine, **Taiwan cost stack**, **gross vs net** curves, vs **0050** benchmark |
-| 7 Monitoring | `monitoring/drift.py` | three-ring drift: rolling IC, PSI/KS, regime flag, Evidently `reports/drift.html` |
+## The two non-negotiable correctness gates
 
-Production logic lives in modules; `notebooks/` is exploration only.
+1. **`tests/test_leakage.py` passes** — every rolling op is trailing; the target is
+   strictly future (`ln(C_{t+1}/C_t)`); features are provably causal (truncating the
+   series at *t* does not change the feature row at *t*).
+2. **Every metric is reported next to its baseline** — *persistence* (`r̂ = 0`) and
+   *historical mean* (`r̂ = mean(r_train)`).
 
-## Headline results (out-of-sample)
+## Notes on the data
 
-- **Mean daily IC ≈ 0.035**, **ICIR ≈ 0.9** (overlap-adjusted). The naive
-  `√252` ICIR reads ≈ 2.9, but daily ICs share 9/10 of their 10-day label window
-  (lag-1 autocorr ≈ 0.8), so we annualize over *effective* independent periods —
-  the honest number is ~0.9, squarely in the sanity band.
-- **Long-only top-quintile**: gross Sharpe ≈ 1.2, **net ≈ 0.7** — the realistic,
-  shortable deployment.
-- **Long-short** (idealized): the gross signal is positive but thin, and the
-  **net Sharpe is eaten by ~10%/yr turnover cost**. The fix is a longer hold /
-  signal smoothing, *not* a fancier model — that gross-vs-net gap is the point.
-- **Benchmark — 0050.TW** (cap-weighted top-50 ETF, buy & hold): the model does
-  **not** beat simple buy-and-hold after costs. The honest deliverable is the
-  rigorous loop, not a deployable edge.
-
-### Transaction costs (Taiwan, modeled explicitly)
-
-Costs are the real TW retail stack, not a single fudge factor (`config.py`):
-broker fee **0.1425% on both buy and sell** with an **NT$20-per-execution
-minimum**, plus a **0.30% securities transaction tax on sells**. The NT$20
-minimum only bites relative to trade size, so the engine assumes an account size
-(`CAPITAL_TWD`, default **NT$100M**) to turn weight changes into NT$ trade values.
-
-## Known limitations (named, not hidden)
-
-- **Survivorship bias**: the universe is *today's* top-50 ranking, so names that
-  dropped out are excluded — this inflates historical returns. Production would
-  use a point-in-time TWSE constituent history (e.g. TEJ).
-- **Concentration**: TSMC + the semiconductor cluster dominate TWSE market cap,
-  which is exactly why predictions are sector-neutralized before ranking.
-- **Short availability**: borrowing some TWSE names is hard/expensive, so the
-  long-short book is an idealization; long-only is the deployable variant.
-- **Scope**: daily data only. The discipline (point-in-time features, purged
-  validation, cost-aware backtest, drift monitoring) is identical at higher
-  frequency; the horizon changes, the rigor doesn't.
+- `^TWII` has **no real Adjusted Close** (an index has no dividend reinvestment), so
+  `AdjClose := Close` and the duplicate AC-based indicators are dropped.
+- Yahoo's index volume can be degenerate; `data.validate_volume` gates it at runtime
+  (<5% zero/NaN to keep volume features). With the current pull it passes.

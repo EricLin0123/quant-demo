@@ -1,0 +1,14 @@
+{
+  "params": {
+    "num_leaves": 63,
+    "learning_rate": 0.052682120094788454,
+    "max_depth": 5,
+    "min_child_samples": 10,
+    "feature_fraction": 0.7251929689477836,
+    "bagging_fraction": 0.6853990121162906,
+    "lambda_l1": 4.633824944243009,
+    "lambda_l2": 3.2193256004033226
+  },
+  "best_iteration": 12,
+  "val_mae": 0.011366656767926952
+}
