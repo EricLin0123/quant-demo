@@ -90,6 +90,59 @@ def evaluate(
     return table
 
 
+def direction_confusion(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    exclude_zero: bool = True,
+) -> tuple[pd.DataFrame, dict]:
+    """Binary up/down confusion matrix for the directional call.
+
+    Positive class is "up" (return > 0). Days with an exactly-flat actual return are
+    excluded by default (consistent with `dir_acc`, which has no defined direction to
+    score on those). Returns (confusion_df, metrics) where confusion_df is laid out
+    actual (rows) x predicted (cols), both ordered [up, down].
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    if exclude_zero:
+        mask = y_true != 0.0
+        y_true, y_pred = y_true[mask], y_pred[mask]
+
+    actual_up = y_true > 0.0
+    pred_up = y_pred > 0.0
+
+    tp = int(np.sum(actual_up & pred_up))     # actual up,   predicted up
+    fn = int(np.sum(actual_up & ~pred_up))    # actual up,   predicted down
+    fp = int(np.sum(~actual_up & pred_up))    # actual down, predicted up
+    tn = int(np.sum(~actual_up & ~pred_up))   # actual down, predicted down
+
+    cm = pd.DataFrame(
+        [[tp, fn], [fp, tn]],
+        index=["actual_up", "actual_down"],
+        columns=["pred_up", "pred_down"],
+    )
+
+    total = tp + tn + fp + fn
+
+    def safe_div(a: int, b: int) -> float:
+        return a / b if b else float("nan")
+
+    metrics = {
+        "n": total,
+        "accuracy": safe_div(tp + tn, total),
+        "precision_up": safe_div(tp, tp + fp),
+        "recall_up": safe_div(tp, tp + fn),
+        "precision_down": safe_div(tn, tn + fn),
+        "recall_down": safe_div(tn, tn + fp),    # specificity
+        "pred_up_rate": safe_div(tp + fp, total),
+        "actual_up_rate": safe_div(tp + fn, total),
+    }
+    f1 = safe_div(2 * metrics["precision_up"] * metrics["recall_up"],
+                  metrics["precision_up"] + metrics["recall_up"])
+    metrics["f1_up"] = f1
+    return cm, metrics
+
+
 def format_table(table: pd.DataFrame) -> str:
     fmt = table.copy()
     for c in ("mae", "rmse"):
