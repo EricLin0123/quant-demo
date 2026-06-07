@@ -56,6 +56,19 @@ WARMUP = 60                            # longest window; drop these warmup rows
 VOLUME_DEGENERATE_THRESHOLD = 0.05    # usable if (frac_zero + frac_nan) < 5%
 
 # ---------------------------------------------------------------------------
+# Feature selection: temporal consistency analysis (CalixBoost §3.2.3.2)
+# ---------------------------------------------------------------------------
+# A feature is kept only if its predictive direction, learned on one 3-month
+# period, still separates up/down days (ROC-AUC >= threshold) when carried to
+# *other* non-overlapping periods. Features that beat chance only in-period are
+# temporally inconsistent and dropped. ~20 business days/month makes a monthly
+# split too small to be significant, so the paper uses trimonthly periods.
+FEATURE_SELECTION_ENABLED = True
+TEMPORAL_PERIOD_MONTHS = 3            # "trimonthly": consecutive 3-month blocks
+TEMPORAL_AUC_THRESHOLD = 0.5         # paper's minimal-crossing threshold
+TEMPORAL_MIN_PERIOD_ROWS = 15        # skip periods too small to assess (< ~1 month)
+
+# ---------------------------------------------------------------------------
 # Split
 # ---------------------------------------------------------------------------
 TRAIN_FRAC = 0.85
