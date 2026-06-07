@@ -31,7 +31,7 @@ BENCHMARK = "0050.TW"            # cap-weighted top-50 ETF — the strategy's be
 
 # --- labelling & rebalancing (used from Stage 2 onward) --------------------
 LABEL_HORIZON = 10               # trading days forward
-REBALANCE_FREQ = 5               # trade every 5 days
+REBALANCE_FREQ = 500               # trade every 5 days
 N_SPLITS = 8                     # walk-forward folds
 EMBARGO_DAYS = 5
 N_QUANTILES = 5                  # quintile long-short (top/bottom 10 of 50 names)

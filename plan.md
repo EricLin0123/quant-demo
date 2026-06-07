@@ -83,7 +83,7 @@ quant-demo/
 ### 1.3 `config.py`
 
 ```python
-START, END        = "2014-01-01", "2024-12-31"
+START, END        = "2014-01-01", date.today().isoformat()
 UNIVERSE          = "TWSE_TOP50"      # hardcoded list of top-50 TWSE tickers (.TW suffix)
 INDEX_PROXY       = "^TWII"           # TAIEX, for beta feature; 0050.TW as ETF proxy
 LABEL_HORIZON     = 10               # trading days forward
