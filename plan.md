@@ -232,7 +232,7 @@ Sanity check against the paper: it found `Difference` and `C-O` (both derived fr
 
 ---
 
-## 13. Plots (`plots.py`)
+## 12. Plots (`plots.py`)
 
 - `mplfinance` candlestick of the test window.
 - Predicted vs. actual returns scatter (with IC annotated) — the per-prediction view.
@@ -241,7 +241,7 @@ Sanity check against the paper: it found `Difference` and `C-O` (both derived fr
 
 ---
 
-## 14. Build order for the agent
+## 13. Build order for the agent
 
 1. `config.py` → `data.py` (+ volume gate) → cache parquet.
 2. `features.py` → `target.py` → `dataset.py` → `tests/test_leakage.py` **must pass before proceeding**.
