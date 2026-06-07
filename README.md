@@ -50,16 +50,23 @@ uv run jupyter lab notebooks/run_pipeline.ipynb
 ## Feature selection: temporal consistency analysis (CalixBoost §3.2.3.2)
 
 Before training, `feature_selection.py` weeds out **temporally inconsistent** columns —
-features whose link to the target only holds inside the window they were fit on. The
-training series is split into consecutive 3-month (_trimonthly_) periods; ~20 business
-days a month is too few for a monthly split to be significant. Each feature's up/down
-direction is learned on one period and its **ROC-AUC** (`sklearn.metrics.roc_auc_score`)
-is measured when that direction is carried to every other non-overlapping period. A
-feature whose mean out-of-period AUC stays at or above the paper's **0.5** threshold
-generalises across time and is **kept**; one that sinks below 0.5 was right only
-in-sample and is **dropped**. The analysis runs on **train only** (selecting on val/test
-would leak), and the surviving subset flows into scaling, training and evaluation. The
-full per-feature AUC table is written to `reports/temporal_consistency.csv`.
+features whose *distribution drifts across time*, because a model trained on the past
+won't generalise on a non-stationary column. The training series is split into
+consecutive 3-month (_trimonthly_) periods; ~20 business days a month is too few for a
+monthly split to be significant. For every **non-overlapping pair** of periods, each
+feature is scored by how well it alone separates one period from the other —
+`sklearn.metrics.roc_auc_score`, taken as `max(AUC, 1 − AUC)` so the direction of
+separation doesn't matter. Reading is inverted from the usual convention: **AUC ≈ 0.5
+is the *good* outcome** — the periods are indistinguishable, so the feature is stable and
+is **kept**; an AUC driven toward 1 means the feature alone tells the periods apart
+(drift), so it is **dropped**. The pairwise AUCs are averaged per feature and thresholded
+at **τ = 0.7** (the paper treats 0.7–0.9 as "strong separation"). On the current pull
+this keeps 23 of 36 features and drops the non-stationary price-level block (the MAs,
+EMAs, Bollinger bands and MACD that trend with the index). The analysis runs on **train
+only** (selecting on val/test would leak), the surviving subset flows into scaling,
+training and evaluation, and the full per-feature AUC table is written to
+`reports/temporal_consistency.csv`. A whole-distribution `evidently` train-vs-test drift
+report (`monitor.py`) is written alongside it as `reports/drift_report.html`.
 
 ## Notes on the data
 
