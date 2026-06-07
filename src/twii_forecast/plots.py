@@ -106,45 +106,49 @@ def confusion_matrix(cm, metrics: dict, fname: str = "direction_confusion.png") 
 def actual_vs_predicted_timeseries(
     dates, y_true, y_pred, fname: str = "actual_vs_predicted_timeseries.png"
 ) -> str:
-    """Per-test-day actual vs predicted next-day return over time.
+    """Per-test-day directional scorecard: was the model right or wrong each day?
 
-    Because predicted magnitudes are ~30x smaller than actuals (the model shrinks
-    toward the conditional median), the two are drawn on **separate y-axes** so the
-    predicted *shape/timing* is visible alongside the actual series. Predicted markers
-    are coloured by directional hit (green = sign matched the actual move, red = missed),
-    which is the per-day view of the confusion matrix.
+    The model's *predicted magnitude* is near-constant and not meaningful, so we drop
+    it entirely and visualise only what matters: the **direction call**. Each actual
+    next-day return is a bar coloured **green when the model got the sign right** and
+    **red when it missed**. A running cumulative hit-rate line is overlaid against a
+    0.5 coin-flip reference — the whole point is that it never pulls away from chance.
     """
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
     hit = np.sign(y_pred) == np.sign(y_true)
+    dir_acc = float(np.mean(hit)) if len(hit) else float("nan")
+    running = np.cumsum(hit) / np.arange(1, len(hit) + 1)
 
     fig, ax1 = plt.subplots(figsize=(12, 4.8))
 
-    # actual on the primary axis (grey bars)
-    ax1.bar(dates, y_true, width=1.0, color="0.75", label="actual")
+    # actual returns as bars, coloured by whether the model called the direction right
+    colors = np.where(hit, "tab:green", "tab:red")
+    ax1.bar(dates, y_true, width=1.0, color=colors)
     ax1.axhline(0, color="0.4", lw=0.6)
-    ax1.set_ylabel("actual next-day log return", color="0.4")
-    ax1.tick_params(axis="y", labelcolor="0.4")
+    ax1.set_ylabel("actual next-day log return")
+    ax1.margins(x=0.01)
 
-    # predicted on a twin axis (line + hit/miss markers)
+    # running directional hit rate vs the coin-flip line, on a twin axis
     ax2 = ax1.twinx()
-    ax2.plot(dates, y_pred, color="tab:blue", lw=0.9, alpha=0.7, label="predicted")
-    ax2.scatter(np.asarray(dates)[hit], y_pred[hit], s=14,
-                color="tab:green", label="direction hit", zorder=3)
-    ax2.scatter(np.asarray(dates)[~hit], y_pred[~hit], s=14,
-                color="tab:red", label="direction miss", zorder=3)
-    ax2.set_ylabel("predicted next-day log return", color="tab:blue")
-    ax2.tick_params(axis="y", labelcolor="tab:blue")
+    ax2.plot(dates, running, color="black", lw=1.4, label="cumulative hit rate")
+    ax2.axhline(0.5, color="black", ls="--", lw=1.0, alpha=0.7, label="coin flip (0.50)")
+    ax2.set_ylim(0.0, 1.0)
+    ax2.set_ylabel("cumulative directional hit rate")
 
-    dir_acc = float(np.mean(hit)) if len(hit) else float("nan")
+    # legend: explain the bar colours + the running line
+    from matplotlib.patches import Patch
+    handles = [
+        Patch(color="tab:green", label="direction hit"),
+        Patch(color="tab:red", label="direction miss"),
+        *ax2.get_legend_handles_labels()[0],
+    ]
+    ax1.legend(handles=handles, loc="upper left", fontsize=8, ncol=4)
+
     ax1.set_title(
-        f"Test window: actual vs. predicted next-day return per day "
-        f"(directional hit rate = {dir_acc:+.4f}; note the ~30x y-axis scale gap)"
+        f"Was the next-day direction right? Green = hit, red = miss "
+        f"(overall hit rate = {dir_acc:.1%} — barely a coin flip)"
     )
-    # merged legend
-    h1, l1 = ax1.get_legend_handles_labels()
-    h2, l2 = ax2.get_legend_handles_labels()
-    ax1.legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, ncol=2)
 
     p = config.REPORTS / fname
     fig.tight_layout(); fig.savefig(p, dpi=130); plt.close(fig)
