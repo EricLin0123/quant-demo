@@ -156,6 +156,59 @@ def actual_vs_predicted_timeseries(
     return str(p)
 
 
+def temporal_consistency(
+    auc_table: pd.DataFrame, tau: float | None = None,
+    fname: str = "temporal_consistency.png",
+) -> str:
+    """Horizontal bar chart of each feature's temporal-consistency AUC.
+
+    Replaces the raw keep/drop grid with a colour-coded visual: one bar per feature,
+    length = aggregated AUC, coloured on a stable→drift scale (green ≈ 0.5 stable,
+    red → 1.0 drift). A dashed line marks the keep/drop threshold τ; dropped features
+    are flagged so the eye lands on the drift immediately. Rows are most-stable first.
+    """
+    tau = config.TCA_TAU if tau is None else tau
+    t = pd.DataFrame(auc_table).sort_values("agg_auc").reset_index(drop=True)
+    feats = t["feature"].astype(str).tolist()
+    aucs = t["agg_auc"].to_numpy(dtype=float)
+    keep = t["keep"].to_numpy(dtype=bool)
+
+    # colour each bar by its AUC on a stable(green)→drift(red) ramp
+    cmap = plt.get_cmap("RdYlGn_r")
+    norm = matplotlib.colors.Normalize(vmin=0.5, vmax=1.0)
+    colors = cmap(norm(np.clip(aucs, 0.5, 1.0)))
+
+    y = np.arange(len(feats))
+    fig, ax = plt.subplots(figsize=(8, max(3.0, 0.34 * len(feats) + 1.2)))
+    ax.barh(y, aucs, color=colors, edgecolor="0.3", linewidth=0.4)
+    ax.set_yticks(y, labels=feats)
+    ax.invert_yaxis()  # most-stable on top
+    ax.set_xlim(0.5, max(1.0, float(aucs.max()) + 0.02))
+    ax.set_xlabel("aggregated temporal-consistency AUC  (0.5 = stable → 1.0 = drift)")
+
+    ax.axvline(tau, color="black", ls="--", lw=1.2)
+    ax.text(tau + 0.005, len(feats) - 0.5, f"keep ↤ τ = {tau:g} ↦ drop",
+            ha="left", va="bottom", fontsize=9, color="0.25")
+
+    # annotate each bar with its value; mark dropped features
+    for yi, a, k in zip(y, aucs, keep):
+        ax.text(a + 0.005, yi, f"{a:.3f}" + ("" if k else "  ✗ drop"),
+                va="center", ha="left", fontsize=8,
+                color="0.2" if k else "tab:red")
+
+    n_drop = int((~keep).sum())
+    ax.set_title(
+        f"Temporal-consistency feature selection — {len(feats)} features, "
+        f"{n_drop} dropped (AUC > {tau:g})"
+    )
+    fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax,
+                 fraction=0.046, pad=0.02, label="drift")
+    p = config.REPORTS / fname
+    fig.tight_layout(); fig.savefig(p, dpi=130); plt.close(fig)
+    logger.info("saved %s", p)
+    return str(p)
+
+
 def compounded_sanity(
     dates, y_true, y_pred, fname: str = "compounded_sanity.png"
 ) -> str:
