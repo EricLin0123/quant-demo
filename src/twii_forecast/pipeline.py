@@ -34,7 +34,14 @@ def run(
     n_iter: int = config.N_RANDOM_SEARCH,
     tune: bool = True,
     use_cache: bool = True,
+    select_features: bool = True,
 ) -> dict:
+    """Run the end-to-end pipeline.
+
+    `select_features` (default True) toggles the train-only temporal-consistency
+    feature selection. Set False to keep **all** features (ablation experiment); in
+    that case `auc_table` in the result is None and `kept_features == feature_cols`.
+    """
     # 1. data + 2. dataset
     df_ohlcv, volume_ok = data.load(use_cache=use_cache)
     table, feature_cols = dataset.build_dataset(df_ohlcv, volume_ok, use_cache=use_cache)
@@ -42,13 +49,17 @@ def run(
     # 3. split (do this before feature selection so selection sees train only)
     sp = split_mod.chronological_split(table)
 
-    # 4. temporal consistency on TRAIN ONLY
-    kept, auc_table = feature_selection.temporal_consistency(
-        sp.train[feature_cols], feature_cols
-    )
-    if not kept:
-        logger.warning("temporal consistency dropped everything; falling back to all features")
-        kept = feature_cols
+    # 4. temporal consistency on TRAIN ONLY (skipped when select_features=False)
+    if select_features:
+        kept, auc_table = feature_selection.temporal_consistency(
+            sp.train[feature_cols], feature_cols
+        )
+        if not kept:
+            logger.warning("temporal consistency dropped everything; falling back to all features")
+            kept = feature_cols
+    else:
+        logger.info("feature selection disabled: keeping all %d features", len(feature_cols))
+        kept, auc_table = feature_cols, None
 
     # 4b. drift report on the kept (raw) features — diagnostic, not a gate
     drift_path = monitor.drift_report(sp.train[kept], sp.test[kept])
